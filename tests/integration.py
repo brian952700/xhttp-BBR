@@ -21,8 +21,8 @@ CONFIG = Path('/usr/local/etc/xray/config.json')
 CERT = Path('/etc/xray-cert/server.crt')
 KEY = Path('/etc/xray-cert/server.key')
 FIXTURE = Path('/etc/xray-cert/acme/ci.example.test_ecc')
-RAW = 'https://raw.githubusercontent.com/brian952700/xhttp/main/'
-MENU = '请选择 [1-8]：'
+RAW = 'https://raw.githubusercontent.com/brian952700/xhttp-BBR/main/'
+MENU = '请选择 [1-10]：'
 PAUSE = '按 Enter 返回菜单…'
 
 
@@ -120,9 +120,10 @@ def main():
     release = dict(line.split('=', 1) for line in Path('/etc/os-release').read_text().splitlines() if '=' in line)
     check('Debian ' + expected, release.get('VERSION_ID', '').strip('"') == expected)
     check('real systemd PID 1', Path('/proc/1/comm').read_text().strip() == 'systemd')
-    for script in ('xy.sh', 'install.sh', 'tests/acme-fixture.sh'):
+    for script in ('xy.sh', 'install.sh', 'enable-bbr.sh', 'enable-tcp-autotune.sh', 'tests/acme-fixture.sh'):
         run('bash', '-n', str(ROOT / script))
-    run('shellcheck', '--severity=error', str(ROOT / 'xy.sh'), str(ROOT / 'install.sh'))
+    run('shellcheck', '--severity=error', *(str(ROOT / name) for name in
+        ('xy.sh', 'install.sh', 'enable-bbr.sh', 'enable-tcp-autotune.sh')))
     check('Bash syntax and ShellCheck error-level checks', True)
 
     FIXTURE.mkdir(parents=True)
@@ -132,7 +133,7 @@ def main():
     (FIXTURE.parent / 'acme.sh').chmod(0o755)
 
     # Verify anonymous public URLs and ensure this run tests this checkout.
-    for name in ('install.sh', 'xy.sh'):
+    for name in ('install.sh', 'xy.sh', 'enable-bbr.sh', 'enable-tcp-autotune.sh'):
         downloaded = Path('/tmp') / ('public-' + name)
         run('curl', '-fsSL', '--retry', '3', RAW + name, '-o', str(downloaded))
         check('public URL exact checkout: ' + name, downloaded.read_bytes() == (ROOT / name).read_bytes())
@@ -169,6 +170,10 @@ def main():
     child.expect_exact('安装/更新完成；证书续期回调已注册。')
     resume(child)
     check('downloaded manager matches checkout', Path('/usr/local/bin/xy').read_bytes() == (ROOT / 'xy.sh').read_bytes())
+    for name in ('enable-bbr.sh', 'enable-tcp-autotune.sh'):
+        installed = Path('/usr/local/lib/xy') / name
+        check('installed tuning script matches checkout: ' + name,
+              installed.read_bytes() == (ROOT / name).read_bytes() and os.access(installed, os.X_OK))
     check('real Xray service active after first install', active())
     check('missing dependencies automatically installed', all(shutil.which(c) for c in ('curl', 'jq', 'openssl', 'socat', 'cron', 'flock', 'ss')))
     check('CA trust automatically installed', Path('/etc/ssl/certs/ca-certificates.crt').stat().st_size > 0)
@@ -480,6 +485,7 @@ update_domain_cert"""
     child.expect_exact('卸载完成。')
     close(child)
     check('uninstall removes manager/config/cert/cron', all(not p.exists() for p in (CONFIG, CERT, KEY, Path('/usr/local/bin/xy'), Path('/etc/cron.d/xy-acme'))))
+    check('uninstall removes tuning scripts', not Path('/usr/local/lib/xy').exists())
     check('uninstall preserves shared ACME directory', shared.read_text() == 'must survive')
     print('ALL INTEGRATION CHECKS PASSED. Public ACME issuance was NOT tested.', flush=True)
 
