@@ -6,8 +6,8 @@ main() (
     set -euo pipefail
     umask 077
     export PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
-    local url='https://raw.githubusercontent.com/brian952700/xhttp/main/xy.sh'
-    local target=/usr/local/bin/xy temp
+    local base_url='https://raw.githubusercontent.com/brian952700/xhttp-BBR/main'
+    local target=/usr/local/bin/xy tuning_dir=/usr/local/lib/xy temp script
     local cyan= reset=
     if [[ -t 1 && ! ${NO_COLOR+x} && ${TERM:-dumb} != dumb ]]; then
         cyan=$'\033[36m'; reset=$'\033[0m'
@@ -48,11 +48,16 @@ main() (
     trap 'rm -rf -- "$temp"' EXIT
     trap 'exit 130' INT
     trap 'exit 143' TERM
-    printf '\n  %s正在下载 xy 管理脚本…%s\n\n' "$cyan" "$reset"
-    curl --fail --show-error --location --proto '=https' --tlsv1.2 \
-        --retry 3 --connect-timeout 20 --max-time 300 "$url" -o "$temp/xy.sh"
-    [[ -s $temp/xy.sh ]] || { printf '错误：下载的脚本为空。\n' >&2; exit 1; }
-    bash -n "$temp/xy.sh"
+    printf '\n  %s正在下载 xy 管理脚本和网络调优脚本…%s\n\n' "$cyan" "$reset"
+    for script in xy.sh enable-bbr.sh enable-tcp-autotune.sh; do
+        curl --fail --show-error --location --proto '=https' --tlsv1.2 \
+            --retry 3 --connect-timeout 20 --max-time 300 "$base_url/$script" -o "$temp/$script"
+        [[ -s $temp/$script ]] || { printf '错误：下载的脚本为空：%s\n' "$script" >&2; exit 1; }
+        bash -n "$temp/$script"
+    done
+    "${elevate[@]}" install -d -o root -g root -m 0755 "$tuning_dir"
+    "${elevate[@]}" install -o root -g root -m 0755 \
+        "$temp/enable-bbr.sh" "$temp/enable-tcp-autotune.sh" "$tuning_dir/"
     "${elevate[@]}" install -o root -g root -m 0755 "$temp/xy.sh" "$target"
     printf '\n  安装完成。以后使用 sudo xy（root 用户直接输入 xy）打开菜单。\n\n'
     "${elevate[@]}" "$target" </dev/tty

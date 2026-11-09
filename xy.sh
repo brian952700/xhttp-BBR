@@ -15,6 +15,7 @@ DOMAIN_FILE=/etc/xray-cert/domain.txt
 STAGE=/etc/xray-cert/staging
 ACME_HOME=/etc/xray-cert/acme
 SCRIPT=/usr/local/bin/xy
+TUNING_DIR=/usr/local/lib/xy
 LOCK=/run/xy/manager.lock
 INSTALL_URL=https://raw.githubusercontent.com/XTLS/Xray-install/main/install-release.sh
 
@@ -96,6 +97,9 @@ show_menu() {
         say '5. 彻底卸载'
         say '6. 重启 Xray 服务'
         say '7. 更新域名及证书'
+        printf '\n'
+        say '9. 开启 BBR'
+        say '10. 开启 TCP 自适应调优'
         printf '\n'
         say '8. 退出'
     )
@@ -692,12 +696,20 @@ list_users() (
     done < <(jq -c '.inbounds[0].settings.clients[]' "$CONFIG")
 )
 
+enable_tuning() (
+    local script="$TUNING_DIR/$1"
+    [[ -x $script ]] || die '缺少调优脚本，请重新执行 README 中的一键安装命令。'
+    lock
+    bash "$script"
+)
+
 uninstall_all() (
     set -e
     local CONFIRM work
     section '彻底卸载'
     if [[ -s $DOMAIN_FILE ]]; then field '当前域名' "$(cat "$DOMAIN_FILE")" 35; fi
     warn '将删除 Xray、所有 Xray 用户配置、此脚本管理的证书和 xy 命令。共享的 /root/.acme.sh 保留。'
+    hint '通过 xy 启用的系统 TCP 设置将保留。'
     ask CONFIRM '确定彻底卸载？[y/N]：'
     [[ $CONFIRM =~ ^[Yy]$ ]] || exit 0
     lock
@@ -719,6 +731,8 @@ uninstall_all() (
     # 固定目录；不删除共享 acme.sh、系统依赖、其他站点或其他 crontab 条目。
     rm -rf -- /usr/local/etc/xray /etc/xray-cert
     rm -f -- /var/log/xray_cron_error.log /var/log/xy-acme.log /usr/local/bin/xy
+    rm -f -- "$TUNING_DIR/enable-bbr.sh" "$TUNING_DIR/enable-tcp-autotune.sh"
+    rmdir -- "$TUNING_DIR" 2>/dev/null || :
     systemctl daemon-reload
     success '卸载完成。'
 )
@@ -741,7 +755,7 @@ main() {
     local CHOICE rc
     while true; do
         show_menu
-        ask CHOICE '请选择 [1-8]：'
+        ask CHOICE '请选择 [1-10]：'
         case $CHOICE in
             1) install_xray;;
             2) add_user;;
@@ -751,7 +765,9 @@ main() {
             6) restart_xray;;
             7) update_domain_cert;;
             8) return 0;;
-            *) warn '无效选项，请输入 1–8。'; continue;;
+            9) enable_tuning enable-bbr.sh;;
+            10) enable_tuning enable-tcp-autotune.sh;;
+            *) warn '无效选项，请输入 1–10。'; continue;;
         esac
         rc=$?
         (( rc == 0 )) || error "操作未完成（退出码 $rc），请查看上方错误。"

@@ -1,6 +1,6 @@
 # xy：VLESS + xHTTP + TLS 管理脚本
 
-提供安装/更新、添加用户、删除用户、查看用户及链接、彻底卸载、重启 Xray 服务、更新域名及证书、退出八项菜单。首次运行且不存在配置时自动进入安装流程。
+提供安装/更新、添加用户、删除用户、查看用户及链接、彻底卸载、重启 Xray 服务、更新域名及证书、开启 BBR、开启 TCP 自适应调优、退出十项菜单。首次运行且不存在配置时自动进入安装流程。
 
 适用于 Debian 12（bookworm）和 Debian 13（trixie）、systemd、普通 Linux VPS。两个版本均已通过 amd64 容器中的真实 systemd 集成测试；其他发行版及架构未验证。也保留 apt、dnf/yum 分支。不能在 Windows、未运行 systemd 的容器或 OpenWrt 上直接安装。
 
@@ -9,10 +9,10 @@
 在 Debian 12 或 Debian 13 的 SSH 终端中复制执行：
 
 ```bash
-bash -o pipefail -c 'curl -fsSL https://raw.githubusercontent.com/brian952700/xhttp/main/install.sh | bash'
+bash -o pipefail -c 'curl -fsSL https://raw.githubusercontent.com/brian952700/xhttp-BBR/main/install.sh | bash'
 ```
 
-支持 root 用户直接运行；普通用户需要 sudo 权限，安装时会提示输入密码。安装入口会下载并检查 `xy.sh`，安装到 `/usr/local/bin/xy`，然后自动打开交互菜单。
+支持 root 用户直接运行；普通用户需要 sudo 权限，安装时会提示输入密码。安装入口会下载并检查三个脚本，将 `xy.sh` 安装到 `/usr/local/bin/xy`，将两个调优脚本安装到 `/usr/local/lib/xy/`，然后自动打开交互菜单。
 
 如果提示 `curl: command not found`，或系统缺少 CA 证书，请先手动安装，再执行上面的一键命令。Debian 12/13 使用 root 执行（普通用户在命令前加 `sudo`）：
 
@@ -30,14 +30,18 @@ sudo xy
 
 root 用户直接输入 `xy` 即可。再次执行一键安装命令会更新管理脚本并打开菜单，不会清空用户；如需安装/更新 Xray 环境，在菜单选择 1。
 
-[查看安装入口 install.sh](https://github.com/brian952700/xhttp/blob/main/install.sh) · [查看主脚本 xy.sh](https://github.com/brian952700/xhttp/blob/main/xy.sh)
+[查看安装入口 install.sh](https://github.com/brian952700/xhttp-BBR/blob/main/install.sh) · [查看主脚本 xy.sh](https://github.com/brian952700/xhttp-BBR/blob/main/xy.sh)
 
 ### 手动安装（可选）
 
-也可以将 `xy.sh` 上传到服务器，在文件所在目录执行：
+也可以将 `xy.sh`、`enable-bbr.sh` 和 `enable-tcp-autotune.sh` 上传到服务器，在文件所在目录执行：
 
 ```bash
-bash -n xy.sh
+for script in xy.sh enable-bbr.sh enable-tcp-autotune.sh; do
+    bash -n "$script" || exit 1
+done
+sudo install -d -o root -g root -m 0755 /usr/local/lib/xy
+sudo install -o root -g root -m 0755 enable-bbr.sh enable-tcp-autotune.sh /usr/local/lib/xy/
 sudo install -o root -g root -m 0755 xy.sh /usr/local/bin/xy
 sudo /usr/local/bin/xy
 ```
@@ -48,9 +52,16 @@ sudo /usr/local/bin/xy
 
 域名 A/AAAA 记录需正确指向服务器；有 AAAA 记录时，IPv6 也必须可达。安全组和防火墙需允许公网 TCP 80（证书申请及续期）以及选定的节点 TCP 端口。脚本不会自动修改防火墙。80 端口不能用作节点监听端口，因为 standalone 证书验证需要它。服务器还需能够访问 Debian 软件源、GitHub 和证书签发服务。
 
+## TCP 网络调优
+
+- **9. 开启 BBR**。检测内核是否支持 BBR，必要时尝试加载 `tcp_bbr`，并将 BBR 设为新建 TCP 连接的默认拥塞控制算法。
+- **10. 开启 TCP 自适应调优**。启用 Linux 内核的 TCP 接收缓冲区自动调节（`net.ipv4.tcp_moderate_rcvbuf=1`），沿用系统当前的缓冲区大小限制。[Linux 内核文档](https://docs.kernel.org/networking/ip-sysctl.html#tcp-moderate-rcvbuf-boolean)
+
+两项可以分别开启，立即应用，并分别写入 `/etc/sysctl.d/99-xy-bbr.conf` 和 `/etc/sysctl.d/99-xy-tcp-autotune.conf`。也可用 root 单独运行对应脚本。卸载 xy 会移除已安装的调优脚本，保留已启用的系统 TCP 设置。
+
 ## 重启服务与更新域名/证书
 
-菜单顺序为：1 安装/更新、2 添加用户、3 删除用户、4 查看链接、5 卸载、6 重启 Xray、7 更新域名及证书、8 退出。
+菜单顺序为：1 安装/更新、2 添加用户、3 删除用户、4 查看链接、5 卸载、6 重启 Xray、7 更新域名及证书、9 开启 BBR、10 开启 TCP 自适应调优、8 退出。
 
 - **6. 重启 Xray 服务**：先以实际服务身份校验配置，重启后检查运行状态。重启会短暂中断连接。
 - **7. 更新域名及证书**：输入新域名，或留空保留当前域名、仅更新证书。保留域名时可选择强制重新签发，默认不强制，避免触发 CA 限额。
