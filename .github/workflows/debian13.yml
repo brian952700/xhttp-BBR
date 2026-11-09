@@ -2,7 +2,7 @@ name: Debian 12 and 13 installation validation
 on:
   push:
     branches: [main]
-    paths: ['xy.sh', 'install.sh', 'tests/**', '.github/workflows/debian13.yml']
+    paths: ['xy.sh', 'install.sh', 'enable-*.sh', 'tests/**', '.github/workflows/debian13.yml']
   workflow_dispatch:
 permissions:
   contents: read
